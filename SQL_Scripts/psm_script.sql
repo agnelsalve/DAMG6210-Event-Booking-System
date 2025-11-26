@@ -731,6 +731,233 @@ LEFT JOIN SEAT_BOOKING SB ON SH.ShowID = SB.ShowID
 GROUP BY TH.TheaterID, TH.TheaterName, TH.City, TH.State, SC.ScreenID, SC.ScreenNumber, SC.SeatCapacity;
 GO
 
+
+-- =============================================
+-- Additional Power BI Data Views
+-- =============================================
+USE EventBookingSystem;
+GO
+
+-- View 1: Sales Overview
+CREATE OR ALTER VIEW vw_PowerBI_SalesOverview
+AS
+SELECT 
+    B.BookingID,
+    B.BookingDateTime,
+    CAST(B.BookingDateTime AS DATE) AS BookingDate,
+    DATEPART(YEAR, B.BookingDateTime) AS BookingYear,
+    DATEPART(MONTH, B.BookingDateTime) AS BookingMonth,
+    DATENAME(MONTH, B.BookingDateTime) AS MonthName,
+    DATEPART(QUARTER, B.BookingDateTime) AS BookingQuarter,
+    DATENAME(WEEKDAY, B.BookingDateTime) AS DayOfWeek,
+    B.TotalAmount,
+    B.BookingStatus,
+    
+    -- Customer Info
+    C.CustomerID,
+    U.FirstName + ' ' + U.LastName AS CustomerName,
+    C.LoyaltyPoints,
+    
+    -- Event Info
+    E.EventID,
+    E.Title AS EventName,
+    E.EventType,
+    E.Status AS EventStatus,
+    E.StartDateTime AS EventStartDate,
+    O.CompanyName AS OrganizerName,
+    
+    -- Ticket Count
+    (SELECT COUNT(*) FROM TICKET T WHERE T.BookingID = B.BookingID) AS TicketCount,
+    
+    -- Snack Revenue
+    ISNULL((SELECT SUM(Subtotal) FROM BOOKING_SNACK BS WHERE BS.BookingID = B.BookingID), 0) AS SnackRevenue,
+    B.TotalAmount - ISNULL((SELECT SUM(Subtotal) FROM BOOKING_SNACK BS WHERE BS.BookingID = B.BookingID), 0) AS TicketRevenue
+FROM BOOKING B
+INNER JOIN CUSTOMER C ON B.CustomerID = C.CustomerID
+INNER JOIN [USER] U ON C.UserID = U.UserID
+INNER JOIN EVENT E ON B.EventID = E.EventID
+LEFT JOIN ORGANIZER O ON E.OrganizerID = O.OrganizerID;
+GO
+
+-- View 2: Theater Performance
+CREATE OR ALTER VIEW vw_PowerBI_TheaterPerformance
+AS
+SELECT 
+    T.TheaterID,
+    T.TheaterName,
+    T.City,
+    T.State,
+    SC.ScreenID,
+    SC.ScreenNumber,
+    SC.SeatCapacity,
+    
+    SH.ShowID,
+    SH.ShowDateTime,
+    CAST(SH.ShowDateTime AS DATE) AS ShowDate,
+    SH.ShowType,
+    SH.Price AS TicketPrice,
+    
+    E.Title AS MovieTitle,
+    M.Genre,
+    M.Rating,
+    
+    -- Occupancy Metrics
+    (SELECT COUNT(*) FROM SEAT_BOOKING SB WHERE SB.ShowID = SH.ShowID) AS SeatsSold,
+    SC.SeatCapacity AS TotalSeats,
+    CAST((SELECT COUNT(*) FROM SEAT_BOOKING SB WHERE SB.ShowID = SH.ShowID) AS FLOAT) / SC.SeatCapacity * 100 AS OccupancyRate,
+    
+    -- Revenue
+    SH.Price * (SELECT COUNT(*) FROM SEAT_BOOKING SB WHERE SB.ShowID = SH.ShowID) AS ShowRevenue
+FROM THEATER T
+INNER JOIN SCREEN SC ON T.TheaterID = SC.TheaterID
+INNER JOIN SHOW SH ON SC.ScreenID = SH.ScreenID
+INNER JOIN EVENT E ON SH.EventID = E.EventID
+LEFT JOIN MOVIE M ON SH.MovieID = M.MovieID;
+GO
+
+-- View 3: Customer Insights
+CREATE OR ALTER VIEW vw_PowerBI_CustomerInsights
+AS
+SELECT 
+    C.CustomerID,
+    U.FirstName,
+    U.LastName,
+    U.FirstName + ' ' + U.LastName AS FullName,
+    U.Email,
+    U.PhoneNumber,
+    C.LoyaltyPoints,
+    
+    -- Booking Metrics
+    COUNT(DISTINCT B.BookingID) AS TotalBookings,
+    SUM(CASE WHEN B.BookingStatus = 'Confirmed' THEN 1 ELSE 0 END) AS ActiveBookings,
+    SUM(CASE WHEN B.BookingStatus = 'Completed' THEN 1 ELSE 0 END) AS CompletedBookings,
+    SUM(CASE WHEN B.BookingStatus = 'Cancelled' THEN 1 ELSE 0 END) AS CancelledBookings,
+    
+    -- Revenue Metrics
+    SUM(CASE WHEN B.BookingStatus IN ('Confirmed', 'Completed') THEN B.TotalAmount ELSE 0 END) AS TotalSpent,
+    AVG(CASE WHEN B.BookingStatus IN ('Confirmed', 'Completed') THEN B.TotalAmount ELSE NULL END) AS AvgBookingValue,
+    MAX(B.BookingDateTime) AS LastBookingDate,
+    MIN(B.BookingDateTime) AS FirstBookingDate,
+    
+    -- Ticket Count
+    COUNT(DISTINCT T.TicketID) AS TotalTickets,
+    
+    -- Customer Segment
+    CASE 
+        WHEN SUM(CASE WHEN B.BookingStatus IN ('Confirmed', 'Completed') THEN B.TotalAmount ELSE 0 END) > 500 THEN 'VIP'
+        WHEN SUM(CASE WHEN B.BookingStatus IN ('Confirmed', 'Completed') THEN B.TotalAmount ELSE 0 END) > 200 THEN 'Regular'
+        ELSE 'Occasional'
+    END AS CustomerSegment
+FROM CUSTOMER C
+INNER JOIN [USER] U ON C.UserID = U.UserID
+LEFT JOIN BOOKING B ON C.CustomerID = B.CustomerID
+LEFT JOIN TICKET T ON B.BookingID = T.BookingID
+GROUP BY C.CustomerID, U.FirstName, U.LastName, U.Email, U.PhoneNumber, C.LoyaltyPoints;
+GO
+
+-- View 4: Product Performance (Movies, Events, Snacks)
+CREATE OR ALTER VIEW vw_PowerBI_ProductPerformance
+AS
+SELECT 
+    E.EventID,
+    E.Title AS EventName,
+    E.EventType,
+    E.StartDateTime,
+    E.EndDateTime,
+    E.Status,
+    
+    -- Movie Specifics
+    M.Genre,
+    M.Rating,
+    
+    -- Sport Specifics
+    S.SportType,
+    S.TournamentName,
+    
+    -- Booking Metrics
+    COUNT(DISTINCT B.BookingID) AS TotalBookings,
+    COUNT(DISTINCT T.TicketID) AS TicketsSold,
+    SUM(B.TotalAmount) AS TotalRevenue,
+    AVG(B.TotalAmount) AS AvgRevenuePerBooking,
+    
+    -- Show Metrics
+    COUNT(DISTINCT SH.ShowID) AS TotalShows,
+    
+    -- Occupancy
+    CAST(COUNT(DISTINCT T.TicketID) AS FLOAT) / NULLIF(COUNT(DISTINCT SH.ShowID), 0) AS AvgTicketsPerShow
+FROM EVENT E
+LEFT JOIN MOVIE M ON E.EventID = M.EventID
+LEFT JOIN SPORT S ON E.EventID = S.EventID
+LEFT JOIN BOOKING B ON E.EventID = B.EventID
+LEFT JOIN TICKET T ON B.BookingID = T.BookingID
+LEFT JOIN SHOW SH ON E.EventID = SH.EventID
+GROUP BY E.EventID, E.Title, E.EventType, E.StartDateTime, E.EndDateTime, E.Status, 
+         M.Genre, M.Rating, S.SportType, S.TournamentName;
+GO
+
+-- View 5: Time Series Analysis
+CREATE OR ALTER VIEW vw_PowerBI_TimeSeries
+AS
+SELECT 
+    CAST(B.BookingDateTime AS DATE) AS Date,
+    DATEPART(YEAR, B.BookingDateTime) AS Year,
+    DATEPART(MONTH, B.BookingDateTime) AS Month,
+    DATEPART(QUARTER, B.BookingDateTime) AS Quarter,
+    DATENAME(WEEKDAY, B.BookingDateTime) AS DayOfWeek,
+    DATEPART(HOUR, B.BookingDateTime) AS HourOfDay,
+    
+    COUNT(DISTINCT B.BookingID) AS DailyBookings,
+    COUNT(DISTINCT T.TicketID) AS DailyTickets,
+    SUM(B.TotalAmount) AS DailyRevenue,
+    AVG(B.TotalAmount) AS AvgDailyBookingValue,
+    
+    COUNT(DISTINCT B.CustomerID) AS UniqueCustomers,
+    
+    E.EventType,
+    
+    -- Running Totals (for cumulative charts)
+    SUM(SUM(B.TotalAmount)) OVER (ORDER BY CAST(B.BookingDateTime AS DATE)) AS CumulativeRevenue
+FROM BOOKING B
+INNER JOIN TICKET T ON B.BookingID = T.BookingID
+INNER JOIN EVENT E ON B.EventID = E.EventID
+WHERE B.BookingStatus IN ('Confirmed', 'Completed')
+GROUP BY CAST(B.BookingDateTime AS DATE), 
+         DATEPART(YEAR, B.BookingDateTime),
+         DATEPART(MONTH, B.BookingDateTime),
+         DATEPART(QUARTER, B.BookingDateTime),
+         DATENAME(WEEKDAY, B.BookingDateTime),
+         DATEPART(HOUR, B.BookingDateTime),
+         E.EventType;
+GO
+
+-- View 6: Snack Sales Analysis
+CREATE OR ALTER VIEW vw_PowerBI_SnackSales
+AS
+SELECT 
+    S.SnackID,
+    S.SnackName,
+    S.SnackType,
+    S.Price AS UnitPrice,
+    
+    COUNT(DISTINCT BS.BookingID) AS OrderCount,
+    SUM(BS.Quantity) AS TotalQuantitySold,
+    SUM(BS.Subtotal) AS TotalRevenue,
+    AVG(BS.Quantity) AS AvgQuantityPerOrder,
+    AVG(BS.Subtotal) AS AvgRevenuePerOrder,
+    
+    -- Rank by popularity
+    RANK() OVER (ORDER BY SUM(BS.Quantity) DESC) AS PopularityRank,
+    
+    -- Revenue contribution
+    SUM(BS.Subtotal) * 100.0 / SUM(SUM(BS.Subtotal)) OVER () AS RevenueContributionPercent
+FROM SNACK S
+LEFT JOIN BOOKING_SNACK BS ON S.SnackID = BS.SnackID
+GROUP BY S.SnackID, S.SnackName, S.SnackType, S.Price;
+GO
+
+PRINT 'Power BI views created successfully!';
+
+
 -- =============================================
 -- SECTION 4: DML TRIGGER (1 Trigger for Auditing)
 -- =============================================
