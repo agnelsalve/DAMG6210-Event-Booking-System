@@ -5,6 +5,10 @@
 ## 📋 Project Overview
 A comprehensive Event & Ticket Booking System database with full CRUD operations, advanced SQL features, and a web-based GUI interface.
 
+## ERD
+<img width="2010" height="2709" alt="image" src="https://github.com/user-attachments/assets/aed6fd28-f90a-4065-a48b-7ac8e3f771e1" />
+
+
 ## 🎯 Features Implemented
 
 ### Database Components
@@ -172,5 +176,6 @@ This project is part of academic coursework for DAMG6210 at Northeastern Univers
 - Course materials and guidelines
 
 ---
+
 
 **Note**: This is an academic project. Database credentials should be properly secured in production environments.
